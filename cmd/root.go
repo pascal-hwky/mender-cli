@@ -15,6 +15,7 @@ package cmd
 
 import (
 	"fmt"
+
 	"github.com/spf13/cobra"
 
 	"github.com/mendersoftware/mender-cli/log"
@@ -56,8 +57,7 @@ func init() {
 	// Here you will define your flags and configuration settings.
 	// Cobra supports persistent flags, which, if defined here,
 	// will be global for your application.
-	rootCmd.PersistentFlags().StringP(argRootServer, "", "", "root server URL, e.g. 'https://hosted.mender.io' (required)")
-	rootCmd.MarkPersistentFlagRequired(argRootServer)
+	rootCmd.PersistentFlags().StringP(argRootServer, "", "https://hosted.mender.io", "root server URL, e.g. 'https://hosted.mender.io' (default)")
 	rootCmd.PersistentFlags().BoolP(argRootSkipVerify, "k", false, "skip SSL certificate verification")
 	rootCmd.PersistentFlags().StringP(argRootToken, "", "", "token file path")
 	rootCmd.PersistentFlags().BoolP(argRootVerbose, "v", false, "print verbose output")
