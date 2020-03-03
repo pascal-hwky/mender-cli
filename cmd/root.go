@@ -50,6 +50,7 @@ var rootCmd = &cobra.Command{
 func Execute() {
 	rootCmd.AddCommand(loginCmd)
 	rootCmd.AddCommand(artifactsCmd)
+	rootCmd.AddCommand(pushCmd)
 	CheckErr(rootCmd.Execute())
 }
 

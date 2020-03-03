@@ -16,10 +16,16 @@ limitations under the License.
 package cmd
 
 import (
-	"errors"
-	"fmt"
+	"os/exec"
 
+	"github.com/mendersoftware/mender-cli/client/deployments"
+	"github.com/mendersoftware/mender-cli/client/inventory"
+	"github.com/mendersoftware/mender-cli/log"
 	"github.com/spf13/cobra"
+)
+
+const (
+	argPushGroup = "group"
 )
 
 // pushCmd represents the push command
@@ -29,27 +35,101 @@ var pushCmd = &cobra.Command{
 	Long: `Packages current directory as artifact using directory-artifact-gen.
 This artifact is uploaded to the server and deployed to the devices that are in group GROUP.
 The generated artifact is deleted locally after upload.`,
-	Args: func(cmd *cobra.Command, args []string) error {
-		if len(args) < 1 || len(args) > 1 {
-			return errors.New("requires a single GROUP argument")
-		}
-		return nil
-	},
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Println("push called for " + args[0])
+	Run: func(c *cobra.Command, args []string) {
+		cmd, err := NewPushCmd(c, args)
+		CheckErr(err)
+
+		CheckErr(cmd.Run())
 	},
 }
 
 func init() {
-	rootCmd.AddCommand(pushCmd)
+}
 
-	// Here you will define your flags and configuration settings.
+type PushCmd struct {
+	server     string
+	skipVerify bool
+	group      string
+	tokenPath  string
+	devices    []inventory.Device
+}
 
-	// Cobra supports Persistent Flags which will work for this command
-	// and all subcommands, e.g.:
-	// pushCmd.PersistentFlags().String("foo", "", "A help for foo")
+func NewPushCmd(cmd *cobra.Command, args []string) (*PushCmd, error) {
+	server, err := cmd.Flags().GetString(argRootServer)
+	if err != nil {
+		return nil, err
+	}
 
-	// Cobra supports local flags which will only run when this command
-	// is called directly, e.g.:
-	// pushCmd.Flags().BoolP("toggle", "t", false, "Help message for toggle")
+	skipVerify, err := cmd.Flags().GetBool(argRootSkipVerify)
+	if err != nil {
+		return nil, err
+	}
+
+	var group string
+	if len(args) == 1 {
+		group = args[0]
+	} else {
+		return nil, nil
+	}
+
+	token, err := cmd.Flags().GetString(argRootToken)
+	if err != nil {
+		return nil, err
+	}
+
+	if token == "" {
+		token, err = getDefaultAuthTokenPath()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return &PushCmd{
+		server:     server,
+		group:      group,
+		tokenPath:  token,
+		skipVerify: skipVerify,
+	}, nil
+}
+
+func (c *PushCmd) Run() error {
+
+	// Get list of devices
+	client := inventory.NewClient(c.server, c.skipVerify)
+	devices, err := client.ListDevices(c.group, c.tokenPath)
+	if err != nil {
+		return err
+	}
+
+	c.devices = devices
+	if len(c.devices) == 0 {
+		log.Info("No devices in group " + c.group)
+		return nil
+	}
+
+	// Create artifact TODO: infer device-type from []Devices
+	artifactName := c.group
+	artifactPath := "/tmp/" + artifactName + ".mender"
+	cmd := exec.Command("directory-artifact-gen", "--artifact-name", artifactName, "--device-type", "generic-armv6", "--dest-dir", "/opt/installed-by-directory", "--output-path", artifactPath, ".")
+	cmdErr := cmd.Run()
+	if cmdErr != nil {
+		log.Err("Error when creating artifact. Ensure directory-artifact-gen is installed and try again.")
+		return cmdErr
+	}
+	log.Info("Created artifact " + artifactName + " at " + artifactPath)
+
+	// Upload artifact
+	artifactDescription := "Uploaded by mender-cli for device group " + c.group
+	uploadClient := deployments.NewClient(c.server, c.skipVerify)
+	uploadErr := uploadClient.UploadArtifact(artifactDescription, artifactPath, c.tokenPath, false)
+	if uploadErr != nil {
+		log.Err("Error when uploading artifact.")
+		return uploadErr
+	}
+
+	// Deploy artifact
+
+	log.Info("push successful")
+
+	return nil
 }
