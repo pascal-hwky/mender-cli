@@ -17,7 +17,9 @@ package cmd
 
 import (
 	"os/exec"
+	"time"
 
+	"github.com/mendersoftware/mender-cli/client/deploy"
 	"github.com/mendersoftware/mender-cli/client/deployments"
 	"github.com/mendersoftware/mender-cli/client/inventory"
 	"github.com/mendersoftware/mender-cli/log"
@@ -51,7 +53,7 @@ type PushCmd struct {
 	skipVerify bool
 	group      string
 	tokenPath  string
-	devices    []inventory.Device
+	deviceIds  []string
 }
 
 func NewPushCmd(cmd *cobra.Command, args []string) (*PushCmd, error) {
@@ -100,17 +102,21 @@ func (c *PushCmd) Run() error {
 	if err != nil {
 		return err
 	}
+	var deviceIds []string
+	for _, device := range devices {
+		deviceIds = append(deviceIds, device.Id)
+	}
 
-	c.devices = devices
-	if len(c.devices) == 0 {
+	c.deviceIds = deviceIds
+	if len(c.deviceIds) == 0 {
 		log.Info("No devices in group " + c.group)
 		return nil
 	}
 
 	// Create artifact TODO: infer device-type from []Devices
-	artifactName := c.group
+	artifactName := c.group + "-" + time.Now().Format(time.RFC3339)
 	artifactPath := "/tmp/" + artifactName + ".mender"
-	cmd := exec.Command("directory-artifact-gen", "--artifact-name", artifactName, "--device-type", "generic-armv6", "--dest-dir", "/opt/installed-by-directory", "--output-path", artifactPath, ".")
+	cmd := exec.Command("directory-artifact-gen", "--artifact-name", artifactName, "--device-type", "generic-armv6", "--dest-dir", "/opt/install-by-directory", "--output-path", artifactPath, ".")
 	cmdErr := cmd.Run()
 	if cmdErr != nil {
 		log.Err("Error when creating artifact. Ensure directory-artifact-gen is installed and try again.")
@@ -128,6 +134,13 @@ func (c *PushCmd) Run() error {
 	}
 
 	// Deploy artifact
+	deployName := "Deploy"
+	deployClient := deploy.NewClient(c.server, c.skipVerify)
+	deployErr := deployClient.DeployRelease(artifactName, c.deviceIds, deployName, c.tokenPath)
+	if deployErr != nil {
+		log.Err("Error when deploying release.")
+		return deployErr
+	}
 
 	log.Info("push successful")
 

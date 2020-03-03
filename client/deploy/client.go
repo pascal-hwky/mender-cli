@@ -1,4 +1,4 @@
-// Copyright 2018 Hawkeye Recognition
+// Copyright 2018 Northern.tech AS
 //
 //    Licensed under the Apache License, Version 2.0 (the "License");
 //    you may not use this file except in compliance with the License.
@@ -11,9 +11,10 @@
 //    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 //    See the License for the specific language governing permissions and
 //    limitations under the License.
-package inventory
+package deploy
 
 import (
+	"bytes"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -27,25 +28,13 @@ import (
 )
 
 const (
-	deviceGroupUrl = "/api/management/v1/inventory/devices"
+	deployUrl = "/api/management/v1/deployments/deployments"
 )
 
 type Client struct {
-	url            string
-	deviceGroupUrl string
-	client         *http.Client
-}
-
-type Device struct {
-	Attributes []Attribute
-	Id         string
-	Updated_ts string
-}
-
-type Attribute struct {
-	Description string
-	Name        string
-	Value       string
+	url       string
+	deployUrl string
+	client    *http.Client
 }
 
 func NewClient(url string, skipVerify bool) *Client {
@@ -54,21 +43,23 @@ func NewClient(url string, skipVerify bool) *Client {
 	}
 
 	return &Client{
-		url:            url,
-		deviceGroupUrl: JoinURL(url, deviceGroupUrl),
+		url:       url,
+		deployUrl: JoinURL(url, deployUrl),
 		client: &http.Client{
 			Transport: tr,
 		},
 	}
 }
 
-func (c *Client) ListDevices(group string, tokenPath string) ([]Device, error) {
+func (c *Client) DeployRelease(artifactName string, deviceIds []string, deployName string, tokenPath string) error {
 	token, err := ioutil.ReadFile(tokenPath)
 	if err != nil {
-		return nil, errors.Wrap(err, "Please Login first")
+		return errors.Wrap(err, "Please Login first")
 	}
-	reqUrl := c.deviceGroupUrl + "?group=" + group
-	req, err := http.NewRequest(http.MethodGet, reqUrl, nil)
+	reqUrl := c.deployUrl
+	deviceIdsJson, _ := json.Marshal(deviceIds)
+	var jsonStr = []byte(`{"artifact_name": "` + artifactName + `", "devices": ` + string(deviceIdsJson) + `, "name": "` + deployName + `"}`)
+	req, err := http.NewRequest(http.MethodPost, reqUrl, bytes.NewBuffer(jsonStr))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+string(token))
 
@@ -77,26 +68,23 @@ func (c *Client) ListDevices(group string, tokenPath string) ([]Device, error) {
 
 	rsp, err := c.client.Do(req)
 	if err != nil {
-		return nil, errors.Wrap(err, "POST /auth/login request failed")
+		return errors.Wrap(err, "POST /auth/login request failed")
 	}
 	defer rsp.Body.Close()
 
 	rspDump, _ := httputil.DumpResponse(rsp, true)
 	log.Verbf("response: \n%v\n", string(rspDump))
 
-	body, err := ioutil.ReadAll(rsp.Body)
-	if err != nil {
-		return nil, errors.Wrap(err, "can't read request body")
+	//body, err := ioutil.ReadAll(rsp.Body)
+	//if err != nil {
+	//		return errors.Wrap(err, "can't read request body")
+	//}
+
+	if rsp.StatusCode != http.StatusCreated {
+		return errors.New(fmt.Sprintf("deploy failed with status %d", rsp.StatusCode))
 	}
 
-	if rsp.StatusCode != http.StatusOK {
-		return nil, errors.New(fmt.Sprintf("devices failed with status %d", rsp.StatusCode))
-	}
-
-	var result []Device
-	json.Unmarshal(body, &result)
-
-	return result, nil
+	return nil
 }
 
 func JoinURL(base, url string) string {
